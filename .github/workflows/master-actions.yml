@@ -14,4 +14,4 @@ jobs:
     - name: Shell Linter
       uses: azohra/shell-linter@v0.3.0
       with:
-        path: ./**/*.sh
+        path: .
