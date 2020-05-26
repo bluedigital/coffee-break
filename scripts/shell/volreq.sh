@@ -353,33 +353,41 @@ function tarCloneFs() {
         exit 2
     fi
 
-    _src_dir="$(realpath -q $1)"
-    _dst_dir="$(realpath -q $2)"
+    _src_dir="$(realpath -q "$1")"
+    _dst_dir="$(realpath -q "$2")"
 
     echo "Copying from $src_dir to $dst_dir..."
-    cd "$_src_dir" && tar cf - . 2>> /tmp/clone_fs.$$ | if ! tar xvf - -C "$_dst_dir" 2>> /tmp/clone_fs.$$
+    cd "$_src_dir" && tar cf - . 2>> /tmp/clone_fs_in.$$ | if ! tar xvf - -C "$_dst_dir" 2>> /tmp/clone_fs_out.$$
     then
         echo -ne "$color_bold"
         echo "Error cloning directories"
         echo -ne "$color_red"
-        if [ -s /tmp/clone_fs.$$ ]; then
-            cat /tmp/clone_fs.$$
-            rm -f /tmp/clone_fs.$$
+        if [ -s /tmp/clone_fs*.$$ ]; then
+            cat /tmp/clone_fs*.$$
+            rm -f /tmp/clone_fs*.$$
         fi
         echo -ne "$color_reset"        
         return 2
     fi
 
     echo "Done cloning directories"
-    if [ -s /tmp/clone_fs.$$ ]; then
+    if [ -s /tmp/clone_fs_in.$$ ]; then
             echo -ne "$color_bold"
-            echo "Error messages found while copying directories:"
+            echo "Error messages found while reading directories:"
             echo -ne "$color_red"
-            cat /tmp/clone_fs.$$
+            cat /tmp/clone_fs_in.$$
             echo -ne "$color_reset"
     fi
 
-    rm -f /tmp/clone_fs.$$
+    if [ -s /tmp/clone_fs_out.$$ ]; then
+            echo -ne "$color_bold"
+            echo "Error messages found while writing directories:"
+            echo -ne "$color_red"
+            cat /tmp/clone_fs_out.$$
+            echo -ne "$color_reset"
+    fi
+
+    rm -f /tmp/clone_fs*.$$
 }
 
 init
