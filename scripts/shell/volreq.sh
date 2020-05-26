@@ -362,7 +362,7 @@ function tarCloneFs() {
         echo -ne "$color_bold"
         echo "Error cloning directories"
         echo -ne "$color_red"
-        if [ -s /tmp/clone_fs*.$$ ]; then
+        if [ -s /tmp/clone_fs_in.$$ ] || [ -s /tmp/clone_fs_out.$$ ]; then
             cat /tmp/clone_fs*.$$
             rm -f /tmp/clone_fs*.$$
         fi
