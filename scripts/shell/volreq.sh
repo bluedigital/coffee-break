@@ -76,8 +76,8 @@ function sanityCheck() {
             ;;
         4.2.amazon)
             cloud_provider=aws
-            aws sts get-caller-identity > /dev/null 2>&1 
-            if [ $? -ne 0 ]; then
+            if ! aws sts get-caller-identity > /dev/null 2>&1 
+            then
                 echo -ne "$color_red"
                 echo "awscli not configured, aborting"
                 echo -ne "$color_reset"
@@ -117,7 +117,7 @@ function selectSrcDir() {
     fi
 
     src_device=$(df --output=source "$src_dir" 2> /dev/null | grep -v "^Filesystem")
-    if [ $? -ne 0 ]; then
+    if [ "$src_device" = "" ]; then
         echo -ne "$color_red"
         echo "$src_dir is not a valid mounted filesystem, aborting"
         echo -ne "$color_reset"
@@ -146,10 +146,10 @@ function selectSrcDir() {
 function createDstDir() {
     case "$cloud_provider" in
         aws)
-            declare -a srv_instance_identity=($( \
+            IFS=" " read -r -a srv_instance_identity <<< "$( \
                 curl -s $aws_url/dynamic/instance-identity/document | \
                 grep -E '"(availabilityZone|instanceId|region)"' | \
-                tr -d '":,\n'))
+                tr -d '":,\n')"
             if [ -z "${srv_instance_identity[5]}" ]; then
                 echo "Error running curl to fetch instance identity, aborting"
                 exit 2
@@ -225,10 +225,10 @@ function createDstDir() {
             lsblk -p | awk '/disk $/ { print $1 }' >> /tmp/lsblk-pre.$$ 2>&1
 
             dst_volume_state=$(aws ec2 attach-volume \
-                --region $srv_region \
-                --volume-id $dst_volume_id \
-                --instance-id $srv_instance_id \
-                --device $dst_volume_name | \
+                --region "$srv_region" \
+                --volume-id "$dst_volume_id" \
+                --instance-id "$srv_instance_id" \
+                --device "$dst_volume_name" | \
                 grep State | awk -F\" '{ print $4 }')
             if [ ! "$dst_volume_state" = "attaching" ]; then
                 echo -ne "$color_red"
@@ -267,8 +267,8 @@ function createDstDir() {
     dst_volume_partition="${dst_block_device}1"
     echo "Creating a partition $dst_volume_partition"
     parted "$dst_block_device" -s mklabel msdos > /dev/null 2>> /tmp/parted.$$
-    parted "$dst_block_device" -s -a optimal mkpart primary "$dst_volume_fs" 3 100% > /dev/null 2>> /tmp/parted.$$
-    if [ $? -ne 0 ]; then
+    if ! parted "$dst_block_device" -s -a optimal mkpart primary "$dst_volume_fs" 3 100% > /dev/null 2>> /tmp/parted.$$
+    then
         echo -ne "$color_bold"
         echo "Error creating a primary partition in $dst_block_device"
         echo -ne "$color_red"
@@ -290,8 +290,8 @@ function createDstDir() {
     echo "Partition $dst_volume_partition created sucessfully"
 
     echo "Creating a $dst_volume_fs filesystem in $dst_volume_partition"
-    mkfs -t "$dst_volume_fs" "$dst_volume_partition" >> /tmp/mkfs.$$ 2>&1
-    if [ $? -ne 0 ]; then
+    if ! mkfs -t "$dst_volume_fs" "$dst_volume_partition" >> /tmp/mkfs.$$ 2>&1
+    then
         echo -ne "$color_bold"
         echo "Error creating a filesystem in $dst_volume_partition"
         echo -ne "$color_red"
@@ -328,7 +328,7 @@ function createDstDir() {
     fi
 
     echo "Adding new mount point ${src_dir}-volreq to /etc/fstab"
-    if [ ! "$(grep $dst_fs_uuid /etc/fstab)" = "" ]; then
+    if [ ! "$(grep "$dst_fs_uuid" /etc/fstab)" = "" ]; then
         echo -ne "$color_red"
         echo "Filesystem with UUID $dst_fs_uuid already in /etc/fstab file, aborting"
         echo -ne "$color_reset"
@@ -338,8 +338,8 @@ function createDstDir() {
 
     dst_dir="${src_dir}-volreq"
     mkdir -p "$dst_dir"
-    mount -a
-    if [ $? -ne 0 ]; then
+    if ! mount -a
+    then
         echo -ne "$color_red"
         echo "Error mounting filesystems, aborting"
         echo -ne "$color_reset"
@@ -353,12 +353,12 @@ function tarCloneFs() {
         exit 2
     fi
 
-    _src_dir=$(realpath -q $1)
-    _dst_dir=$(realpath -q $2)
+    _src_dir="$(realpath -q $1)"
+    _dst_dir="$(realpath -q $2)"
 
     echo "Copying from $src_dir to $dst_dir..."
-    cd "$_src_dir" && tar cf - . 2>> /tmp/clone_fs.$$ | tar xvf - -C "$_dst_dir" 2>> /tmp/clone_fs.$$
-    if [ $? -ne 0 ]; then
+    cd "$_src_dir" && tar cf - . 2>> /tmp/clone_fs.$$ | if ! tar xvf - -C "$_dst_dir" 2>> /tmp/clone_fs.$$
+    then
         echo -ne "$color_bold"
         echo "Error cloning directories"
         echo -ne "$color_red"
