@@ -357,7 +357,8 @@ function tarCloneFs() {
     _dst_dir="$(realpath -q "$2")"
 
     echo "Copying from $src_dir to $dst_dir..."
-    cd "$_src_dir" && tar cf - . 2>> /tmp/clone_fs_in.$$ | if ! tar xvf - -C "$_dst_dir" 2>> /tmp/clone_fs_out.$$
+    
+    if ! (cd "$_src_dir" && tar cf - . 2>> /tmp/clone_fs_in.$$ | tar xvf - -C "$_dst_dir" 2>> /tmp/clone_fs_out.$$)
     then
         echo -ne "$color_bold"
         echo "Error cloning directories"
