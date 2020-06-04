@@ -67,7 +67,7 @@ function sanityCheck() {
     echo -e "Welcome to $0\nSanity check..."
     echo -ne "$color_reset"
 
-    checkRequirements dmidecode aws curl parted mkfs realpath tar lsblk tune2fs xfs_admin
+    checkRequirements dmidecode aws curl parted mkfs realpath tar lsblk tune2fs xfs_admin zip
 
     dmi_bios=$(dmidecode -s bios-version)
     case "$dmi_bios" in
@@ -357,7 +357,7 @@ function tarCloneFs() {
     _dst_dir="$(realpath -q "$2")"
 
     echo "Copying from $src_dir to $dst_dir..."
-    
+
     if ! (cd "$_src_dir" && tar cf - . 2>> /tmp/clone_fs_in.$$ | tar xvf - -C "$_dst_dir" 2>> /tmp/clone_fs_out.$$)
     then
         echo -ne "$color_bold"
