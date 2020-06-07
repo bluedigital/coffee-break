@@ -201,7 +201,9 @@ function selectSrcDir() {
         exit 2
     fi
 
-    src_dir=$(lsblk -n -P -o UUID,MOUNTPOINT | grep -F "$src_dev" | sed -n 's/.*MOUNTPOINT="\(.*\)"/\1/p')
+    src_devspec=$(lsblk -n -P -o UUID,FSTYPE,MOUNTPOINT | grep -F "$src_dev")
+    src_dir=$(echo -n "$src_devspec" | sed -n 's/.*MOUNTPOINT="\([^"]*\)"/\1/p')
+    src_fstype=$(echo -n "$src_devspec" | sed -n 's/.*FSTYPE="\([^"]*\).*"/\1/p')
 
     if [ "$src_dir" = "/" ]; then
         echo -ne "$color_red"
@@ -225,6 +227,25 @@ function selectSrcDir() {
       echo -ne "$color_yellow"
       echo -n "Batch enabled: yes"
       echo -ne "$color_reset"
+    fi
+
+    if [ ! "$src_fstype" = "$dst_volume_fs" ]; then
+      echo -ne "$color_yellow"
+      echo -n "You're about to change the filesystem type from \"$src_fstype\" to \"$dst_volume_fs\", are you sure? (y/N): "
+      echo -ne "$color_reset"
+
+      if [ "$batch_enabled" == "no" ]; then
+        read -r yn
+
+        if [ ! "$yn" == "y" ]; then
+          exit 0
+        fi
+      else
+        echo -ne "$color_yellow"
+        echo -n "Batch enabled: yes"
+        echo -ne "$color_reset"
+      fi
+
     fi
 }
 
