@@ -1,13 +1,17 @@
 #!/bin/bash
 
 function init() {
-    # variables to automate in a near future
+    # default variables value
     dst_volume_type=gp2
     dst_volume_size=15
     dst_volume_fs=xfs
     dst_volume_tag_key=purpose
     dst_volume_tag_value=production
     aws_url="http://169.254.169.254/latest"
+    batch_enabled="no"
+    umount_old_device="no"
+    # TODO
+    # replace_old_fstab_enabled="no"
 
     # terminal colors
     color_bold=$'\x1b[97m'
@@ -15,6 +19,73 @@ function init() {
     color_red=$'\x1b[31m'
     color_reset=$'\x1b[0m'
     color_yellow=$'\x1b[93m'
+
+    POSITIONAL=()
+    while [[ $# -gt 0 ]]
+    do
+    key="$1"
+
+    case $key in
+        -d|--src-dev)
+        # The source device to be resized
+        # Must be the device mountpoint or UUID
+        src_dev="$2"
+        shift
+        shift
+        ;;
+        -t|--dst-volume-type)
+        dst_volume_type="$2"
+        shift
+        shift
+        ;;
+        -s|--dst-volume-size)
+        dst_volume_size="$2"
+        shift
+        shift
+        ;;
+        -f|--dst-volume-fs)
+        dst_volume_fs="$2"
+        shift
+        shift
+        ;;
+        -n|--dst-volume-name)
+        dst_volume_name="$2"
+        shift
+        shift
+        ;;
+        --dst-volume-tag-key)
+        dst_volume_tag_key="$2"
+        shift
+        shift
+        ;;
+        --dst-volume-tag-value)
+        dst_volume_tag_value="$2"
+        shift
+        shift
+        ;;
+        -b|--batch)
+        # Batch version, don't ask anything
+        batch_enabled="yes"
+        shift
+        ;;
+        -u|--umount-old-device)
+        # umount device to ensure that is not being used
+        umount_old_device="yes"
+        shift
+        ;;
+        -o|--replace-old-fstab)
+        # Comment the old fstab and move the old mountpoint to "*-old"
+        # TODO
+        # replace_old_fstab_enabled="yes"
+        shift
+        ;;
+        *)
+        POSITIONAL+=("$1")
+        shift
+        ;;
+    esac
+    done
+    set -- "${POSITIONAL[@]}"
 }
 
 function checkRequirements() {
@@ -67,7 +138,7 @@ function sanityCheck() {
     echo -e "Welcome to $0\nSanity check..."
     echo -ne "$color_reset"
 
-    checkRequirements dmidecode aws curl parted mkfs realpath tar lsblk tune2fs xfs_admin zip
+    checkRequirements dmidecode aws curl parted mkfs realpath tar lsblk tune2fs xfs_admin
 
     dmi_bios=$(dmidecode -s bios-version)
     case "$dmi_bios" in
@@ -97,36 +168,44 @@ function selectSrcDir() {
     echo -ne "$color_bold"
     echo -e "\nListing mounted filesystems"
     echo -ne "$color_reset"
-    df -l -h --output=target,size,pcent
+    lsblk -d -o +UUID
     echo -ne "$color_yellow"
-    echo -n "Please enter the filesystem to resize: "
+    echo -n "Please enter the filesystem to resize (you can use the device name or the UUID): "
     echo -ne "$color_reset"
-    read -r src_dir
-    if [ -z "$src_dir" ]; then
+
+    if [ "$src_dev" = "" ]; then
+      read -r src_dev
+    fi
+
+    if [ -z "$src_dev" ]; then
         echo -ne "$color_red"
         echo "Filesystem can't be empty, aborting"
         echo -ne "$color_reset"
         exit 2
     fi
 
+    available_devices=$(lsblk -n -P -o UUID,MOUNTPOINT 2> /dev/null)
+    src_device=$(echo "$available_devices" | grep "MOUNTPOINT=\"$src_dev\"")
+    src_uuid=$(echo "$available_devices" | grep "UUID=\"$src_dev\"")
+    if [ "$src_device" = "" ] && [ "$src_uuid" = "" ]; then
+        echo -ne "$color_red"
+        echo "$src_dev is not a valid mounted filesystem, aborting"
+        echo -ne "$color_reset"
+        exit 2
+    fi
+    
+    if [ "$(grep -v "^#" /etc/fstab | grep -m 1 "^$src_dev$\|^UUID=$src_dev$" | awk '{ print $1 }')" = "" ]; then
+        echo -ne "$color_red"
+        echo "$src_dev needs to be configured in /etc/fstab to resize"
+        echo -ne "$color_reset"
+        exit 2
+    fi
+
+    src_dir=$(lsblk -n -P -o UUID,MOUNTPOINT | grep -F "$src_dev" | sed -n 's/.*MOUNTPOINT="\(.*\)"/\1/p')
+
     if [ "$src_dir" = "/" ]; then
         echo -ne "$color_red"
         echo "Can't resize root filesystem"
-        echo -ne "$color_reset"
-        exit 2
-    fi
-
-    src_device=$(df --output=source "$src_dir" 2> /dev/null | grep -v "^Filesystem")
-    if [ "$src_device" = "" ]; then
-        echo -ne "$color_red"
-        echo "$src_dir is not a valid mounted filesystem, aborting"
-        echo -ne "$color_reset"
-        exit 2
-    fi
-
-    if [ "$(grep "$src_dir" /etc/fstab | awk '{ print $1 }' | grep -F "$src_device")" = "" ]; then
-        echo -ne "$color_red"
-        echo "$src_dir needs to be configured in /etc/fstab to resize"
         echo -ne "$color_reset"
         exit 2
     fi
@@ -136,10 +215,16 @@ function selectSrcDir() {
     echo -ne "$color_yellow"
     echo -n "Are you sure? (y/N): "
     echo -ne "$color_reset"
-    read -r yn
+    if [ "$batch_enabled" == "no" ]; then
+      read -r yn
 
-    if [ ! "$yn" == "y" ]; then
-        exit 0
+      if [ ! "$yn" == "y" ]; then
+          exit 0
+      fi
+    else
+      echo -ne "$color_yellow"
+      echo -n "Batch enabled: yes"
+      echo -ne "$color_reset"
     fi
 }
 
@@ -187,7 +272,10 @@ function createDstDir() {
             echo -ne "$color_yellow"
             echo -n "Please enter a new volume name to create a filesystem (ex: sdb): "
             echo -ne "$color_reset"
-            read -r dst_volume_name
+            
+            if [ -z "$dst_volume_name" ]; then
+              read -r dst_volume_name
+            fi
 
             echo -e "\nYou are about to create a new EBS volume with the following information:"
             echo -e "name: $dst_volume_name"
@@ -198,11 +286,18 @@ function createDstDir() {
             echo -ne "$color_yellow"
             echo -n "Are you sure? (y/N): "
             echo -ne "$color_reset"
-            read -r yn
-            if [ ! "$yn" == "y" ]; then
-                exit 0
-            fi
 
+            if [ "$batch_enabled" == "no" ]; then
+              read -r yn
+              if [ ! "$yn" == "y" ]; then
+                  exit 0
+              fi
+            else
+              echo -ne "$color_yellow"
+              echo -n "Batch enabled: yes"
+              echo -ne "$color_reset"
+            fi
+            
             dst_volume_id=$(aws ec2 create-volume \
                 --region "$srv_region" \
                 --availability-zone "$srv_availability_zone" \
@@ -345,6 +440,30 @@ function createDstDir() {
         echo -ne "$color_reset"
         exit 2
     fi
+
+    if [ "$umount_old_device" = "yes" ]; then
+      echo -ne "$color_red"
+      echo "Running umount to ensure that old device is not being used"
+      echo -ne "$color_reset"
+
+      if ! umount -v "$src_dir"
+      then
+        echo -ne "$color_red"
+        echo "Failed to unmount old filesystem"
+        echo -ne "$color_reset"
+        exit 2
+      fi
+
+      echo "The filesystem \"$src_dir\" is now unmounted"
+
+      if ! mount -v "$src_dir"
+      then
+        echo -ne "$color_red"
+        echo "Failed to mount old filesystem"
+        echo -ne "$color_reset"
+        exit 2
+      fi
+    fi
 }
 
 function tarCloneFs() {
@@ -357,7 +476,7 @@ function tarCloneFs() {
     _dst_dir="$(realpath -q "$2")"
 
     echo "Copying from $src_dir to $dst_dir..."
-
+    
     if ! (cd "$_src_dir" && tar cf - . 2>> /tmp/clone_fs_in.$$ | tar xvf - -C "$_dst_dir" 2>> /tmp/clone_fs_out.$$)
     then
         echo -ne "$color_bold"
