@@ -395,7 +395,7 @@ function createDstDir() {
     echo "Running umount to ensure that old device is not being used"
 
     if ! umount -v "$src_dir"; then
-      echo -ne "$color_red"
+      echo -ne "$color_yellow"
       echo "Failed to unmount old filesystem"
       echo -ne "$color_reset"
       exit 2
