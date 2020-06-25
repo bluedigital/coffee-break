@@ -392,9 +392,7 @@ function createDstDir() {
   fi
 
   if [ "$umount_old_device" = "yes" ]; then
-    echo -ne "$color_red"
     echo "Running umount to ensure that old device is not being used"
-    echo -ne "$color_reset"
 
     if ! umount -v "$src_dir"; then
       echo -ne "$color_red"
